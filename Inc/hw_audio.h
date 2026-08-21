@@ -1,8 +1,9 @@
+#ifndef HW_AUDIO_H_
+#define HW_AUDIO_H_
+
 #include "stm32l4xx_hal.h"
 #include "cmsis_os.h"
 
-#ifndef HW_AUDIO_H_
-#define HW_AUDIO_H_
 
 #define BUFFER_SIZE 512
 #define HALF_BUFFER_SIZE 256
