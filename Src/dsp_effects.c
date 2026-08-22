@@ -133,7 +133,7 @@ void dsp_effects_update_params(void)
     bq_a1 = a1 / a0;
     bq_a2 = a2 / a0;
 
-    /* 2. Recalculate noise gate threshold */
+    /* Recalculate noise gate threshold */
     float32_t ratio = powf(10.0f, (float32_t)gate_threshold_db / 20.0f);
     adjustable_gate_threshold = (int32_t)(8388608.0f * ratio);
 }
@@ -179,7 +179,7 @@ void dsp_process_sample(int32_t input_sample, int32_t *output_l, int32_t *output
 
     sample = (int32_t)(((int64_t)sample * gate_gain) >> 15);
 
-    /* 1. Apply Gain or Mute */
+    /* Apply Gain or Mute */
     int64_t processed = 0;
     if (!isMuted)
     {
@@ -191,7 +191,7 @@ void dsp_process_sample(int32_t input_sample, int32_t *output_l, int32_t *output
     float32_t pan_gain_r = 1.0f;
     uint8_t has_pan = 0;
 
-    /* 2. Process active DSP effect */
+    /* Process active DSP effect */
     switch (currentEffect)
     {
         case 1: // Robot (Ring Modulator) - modulation with sine or square wave
@@ -373,7 +373,7 @@ void dsp_process_sample(int32_t input_sample, int32_t *output_l, int32_t *output
             break;
     }
 
-    /* 3. Hard Limiter - protects against digital overflow clipping */
+    /* Hard Limiter - protects against digital overflow clipping */
     if (processed > 2147483647LL)  processed = 2147483647LL;
     if (processed < -2147483648LL) processed = -2147483648LL;
 
