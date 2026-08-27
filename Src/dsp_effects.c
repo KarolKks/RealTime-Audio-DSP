@@ -70,6 +70,198 @@ static float32_t bq_x1_2 = 0.0f, bq_x2_2 = 0.0f, bq_y1_2 = 0.0f, bq_y2_2 = 0.0f;
 static int32_t bc_held_sample = 0;
 static uint16_t bc_counter = 0;
 
+/* Typedef for effect processing function pointer */
+typedef int64_t (*effect_process_fn)(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan);
+
+/* Individual effect processing functions */
+static int64_t effect_clean(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    return processed;
+}
+
+static int64_t effect_robot(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    uint32_t phase_step = (uint32_t)ringmod_freq * 133508;
+    ringmod_phase += phase_step;
+
+    int32_t mod_val = 0;
+    if (ringmod_wave_shape == 0) // Sine from LUT
+    {
+        uint32_t idx = ringmod_phase >> 23; 
+        if (idx < 256) {
+            mod_val = (int32_t)sine_table[idx] << 16;
+        } else {
+            mod_val = -(int32_t)sine_table[idx - 256] << 16;
+        }
+    }
+    else // Square wave
+    {
+        mod_val = (ringmod_phase < 0x80000000) ? 2147483647 : -2147483648;
+    }
+
+    return (processed * mod_val) >> 31;
+}
+
+static int64_t effect_distortion(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    int64_t dist_signal = processed * dist_gain;
+
+    if (dist_type == 1) // Hard-Clipping
+    {
+        if (dist_signal > 1073741823LL) dist_signal = 1073741823LL;
+        else if (dist_signal < -1073741824LL) dist_signal = -1073741824LL;
+    }
+    else // Soft-Clipping
+    {
+        if (dist_signal > 1431655765LL) {
+            dist_signal = 1073741823LL + ((dist_signal - 1431655765LL) >> 2);
+        } else if (dist_signal < -1431655765LL) {
+            dist_signal = -1073741823LL + ((dist_signal + 1431655765LL) >> 2);
+        } else if (dist_signal > 715827882LL) {
+            dist_signal = 715827882LL + ((dist_signal - 715827882LL) >> 1);
+        } else if (dist_signal < -715827882LL) {
+            dist_signal = -715827882LL + ((dist_signal + 715827882LL) >> 1);
+        }
+    }
+    return dist_signal;
+}
+
+static int64_t effect_delay(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    int32_t delay_samples = (delay_time_ms * 32170) / 1000;
+    if (delay_samples >= DELAY_BUFFER_SIZE) delay_samples = DELAY_BUFFER_SIZE - 1;
+    else if (delay_samples < 1) delay_samples = 1;
+
+    int32_t readIdx = (int32_t)delayWriteIdx - delay_samples;
+    if (readIdx < 0) readIdx += DELAY_BUFFER_SIZE;
+    int32_t delayedSample = ((int32_t)delayBuffer[readIdx]) << 16;
+
+    int64_t mixed = processed + (delayedSample >> 1);
+
+    if (mixed > 2147483647LL) mixed = 2147483647LL;
+    else if (mixed < -2147483648LL) mixed = -2147483648LL;
+
+    if (delay_feedback_mode == 0) // single echo
+    {
+        delayBuffer[delayWriteIdx] = (int16_t)(processed >> 16);
+    }
+    else // feedback echo
+    {
+        delayBuffer[delayWriteIdx] = (int16_t)(mixed >> 16);
+    }
+
+    delayWriteIdx++;
+    if (delayWriteIdx >= DELAY_BUFFER_SIZE) delayWriteIdx = 0;
+
+    return mixed;
+}
+
+static int64_t effect_pitch_shifter(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    pitchBuffer[pitchWriteIdx] = (int16_t)(processed >> 16);
+
+    pitchPhase += (65536 - pitch_S_q16);
+    if (pitchPhase >= (4096 << 16)) pitchPhase -= (4096 << 16);
+    else if (pitchPhase < 0) pitchPhase += (4096 << 16);
+
+    int32_t p1 = pitchPhase >> 16;
+    int32_t p2 = p1 + 2048;
+    if (p2 >= 4096) p2 -= 4096;
+
+    int32_t r1 = ((int32_t)pitchWriteIdx - p1 - 10) & (PITCH_BUF_SIZE - 1);
+    int32_t r2 = ((int32_t)pitchWriteIdx - p2 - 10) & (PITCH_BUF_SIZE - 1);
+
+    int32_t s1 = pitchBuffer[r1];
+    int32_t s2 = pitchBuffer[r2];
+
+    int32_t w1 = 0;
+    if (p1 < 2048) w1 = p1 << 4;
+    else w1 = (4096 - p1) << 4;
+    int32_t w2 = 32768 - w1;
+
+    int64_t mixed_val = ((int64_t)s1 * w1 + (int64_t)s2 * w2) >> 15;
+    processed = mixed_val << 16;
+
+    pitchWriteIdx = (pitchWriteIdx + 1) & (PITCH_BUF_SIZE - 1);
+    return processed;
+}
+
+static int64_t effect_tremolo_pan(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    uint32_t phase_step = (uint32_t)tremolo_freq * 133508;
+    tremolo_phase += phase_step;
+
+    uint32_t idx = tremolo_phase >> 23;
+    float32_t lfo = 0.0f;
+    if (idx < 256) {
+        lfo = (float32_t)sine_table[idx] / 32768.0f;
+    } else {
+        lfo = -(float32_t)sine_table[idx - 256] / 32768.0f;
+    }
+
+    if (auto_pan_mode == 0) // Tremolo
+    {
+        *pan_l = 0.6f + 0.4f * lfo;
+        *pan_r = *pan_l;
+    }
+    else // Auto-Pan
+    {
+        *pan_l = 0.5f + 0.5f * lfo;
+        *pan_r = 0.5f - 0.5f * lfo;
+    }
+    *has_pan = 1;
+    return processed;
+}
+
+static int64_t effect_filter(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    float32_t x0 = (float32_t)processed;
+  
+    // Cascade 1
+    float32_t y0 = bq_b0 * x0 + bq_b1 * bq_x1 + bq_b2 * bq_x2 - bq_a1 * bq_y1 - bq_a2 * bq_y2;
+    bq_x2 = bq_x1;
+    bq_x1 = x0;
+    bq_y2 = bq_y1;
+    bq_y1 = y0;
+  
+    // Cascade 2
+    float32_t y0_2 = bq_b0 * y0 + bq_b1 * bq_x1_2 + bq_b2 * bq_x2_2 - bq_a1 * bq_y1_2 - bq_a2 * bq_y2_2;
+    bq_x2_2 = bq_x1_2;
+    bq_x1_2 = y0;
+    bq_y2_2 = bq_y1_2;
+    bq_y1_2 = y0_2;
+  
+    return (int64_t)y0_2;
+}
+
+static int64_t effect_bitcrusher(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
+{
+    bc_counter++;
+    if (bc_counter >= bc_downsample)
+    {
+        bc_counter = 0;
+        int32_t val = (int32_t)processed;
+        int32_t bits = (bc_bit_depth == 0) ? 8 : 4;
+        int32_t shift = 32 - bits;
+        val = (val >> shift) << shift;
+        bc_held_sample = val;
+    }
+    return bc_held_sample;
+}
+
+/* Dispatch table of function pointers mapping to currentEffect ID */
+static const effect_process_fn effect_table[9] = {
+    effect_clean,         // 0: Clean / Bypass
+    effect_robot,         // 1: Robot (Ring Modulator)
+    effect_distortion,    // 2: Distortion
+    effect_delay,         // 3: Delay
+    effect_pitch_shifter, // 4: Pitch Shifter
+    effect_tremolo_pan,   // 5: Tremolo / Auto-Pan
+    effect_filter,        // 6: IIR Filter
+    effect_bitcrusher,    // 7: Bitcrusher
+    effect_clean          // 8: Noise Gate (effect math is bypass)
+};
+
 void dsp_effects_init(void)
 {
     memset(delayBuffer, 0, sizeof(delayBuffer));
@@ -98,7 +290,7 @@ void dsp_effects_init(void)
 
 void dsp_effects_update_params(void)
 {
-    /*Recalculate biquad filter coefficients */
+    /* Recalculate biquad filter coefficients */
     float32_t fs = 32170.0f;
     float32_t fc = 100.0f * powf(1.127f, (float32_t)filter_fc_idx);
     if (fc > 15000.0f) fc = 15000.0f;
@@ -191,186 +383,10 @@ void dsp_process_sample(int32_t input_sample, int32_t *output_l, int32_t *output
     float32_t pan_gain_r = 1.0f;
     uint8_t has_pan = 0;
 
-    /* Process active DSP effect */
-    switch (currentEffect)
+    /* Process active DSP effect using the lookup table of function pointers */
+    if (currentEffect >= 0 && currentEffect < 9)
     {
-        case 1: // Robot (Ring Modulator) - modulation with sine or square wave
-        {
-            uint32_t phase_step = (uint32_t)ringmod_freq * 133508;
-            ringmod_phase += phase_step;
-
-            int32_t mod_val = 0;
-            if (ringmod_wave_shape == 0) // Sine from LUT
-            {
-                uint32_t idx = ringmod_phase >> 23; 
-                if (idx < 256) {
-                    mod_val = (int32_t)sine_table[idx] << 16; // scale to Q31
-                } else {
-                    mod_val = -(int32_t)sine_table[idx - 256] << 16;
-                }
-            }
-            else // Square wave
-            {
-                mod_val = (ringmod_phase < 0x80000000) ? 2147483647 : -2147483648;
-            }
-
-            processed = (processed * mod_val) >> 31;
-            break;
-        }
-
-        case 2: // Distortion / Overdrive
-        {
-            int64_t dist_signal = processed * dist_gain;
-
-            if (dist_type == 1) // Hard-Clipping
-            {
-                if (dist_signal > 1073741823LL) dist_signal = 1073741823LL;
-                else if (dist_signal < -1073741824LL) dist_signal = -1073741824LL;
-            }
-            else // Soft-Clipping
-            {
-                if (dist_signal > 1431655765LL) {
-                    dist_signal = 1073741823LL + ((dist_signal - 1431655765LL) >> 2);
-                } else if (dist_signal < -1431655765LL) {
-                    dist_signal = -1073741823LL + ((dist_signal + 1431655765LL) >> 2);
-                } else if (dist_signal > 715827882LL) {
-                    dist_signal = 715827882LL + ((dist_signal - 715827882LL) >> 1);
-                } else if (dist_signal < -715827882LL) {
-                    dist_signal = -715827882LL + ((dist_signal + 715827882LL) >> 1);
-                }
-            }
-            processed = dist_signal;
-            break;
-        }
-
-        case 3: // Echo (Delay)
-        {
-            int32_t delay_samples = (delay_time_ms * 32170) / 1000;
-            if (delay_samples >= DELAY_BUFFER_SIZE) delay_samples = DELAY_BUFFER_SIZE - 1;
-            else if (delay_samples < 1) delay_samples = 1;
-
-            int32_t readIdx = (int32_t)delayWriteIdx - delay_samples;
-            if (readIdx < 0) readIdx += DELAY_BUFFER_SIZE;
-            int32_t delayedSample = ((int32_t)delayBuffer[readIdx]) << 16;
-
-            int64_t mixed = processed + (delayedSample >> 1);
-
-            if (mixed > 2147483647LL) mixed = 2147483647LL;
-            else if (mixed < -2147483648LL) mixed = -2147483648LL;
-
-            if (delay_feedback_mode == 0) // single echo
-            {
-                delayBuffer[delayWriteIdx] = (int16_t)(processed >> 16);
-            }
-            else // feedback echo
-            {
-                delayBuffer[delayWriteIdx] = (int16_t)(mixed >> 16);
-            }
-
-            delayWriteIdx++;
-            if (delayWriteIdx >= DELAY_BUFFER_SIZE) delayWriteIdx = 0;
-
-            processed = mixed;
-            break;
-        }
-
-        case 4: // Pitch Shifter
-        {
-            pitchBuffer[pitchWriteIdx] = (int16_t)(processed >> 16);
-
-            pitchPhase += (65536 - pitch_S_q16);
-            if (pitchPhase >= (4096 << 16)) pitchPhase -= (4096 << 16);
-            else if (pitchPhase < 0) pitchPhase += (4096 << 16);
-
-            int32_t p1 = pitchPhase >> 16;
-            int32_t p2 = p1 + 2048;
-            if (p2 >= 4096) p2 -= 4096;
-
-            int32_t r1 = ((int32_t)pitchWriteIdx - p1 - 10) & (PITCH_BUF_SIZE - 1);
-            int32_t r2 = ((int32_t)pitchWriteIdx - p2 - 10) & (PITCH_BUF_SIZE - 1);
-
-            int32_t s1 = pitchBuffer[r1];
-            int32_t s2 = pitchBuffer[r2];
-
-            int32_t w1 = 0;
-            if (p1 < 2048) w1 = p1 << 4;
-            else w1 = (4096 - p1) << 4;
-            int32_t w2 = 32768 - w1;
-
-            int64_t mixed_val = ((int64_t)s1 * w1 + (int64_t)s2 * w2) >> 15;
-            processed = mixed_val << 16;
-
-            pitchWriteIdx = (pitchWriteIdx + 1) & (PITCH_BUF_SIZE - 1);
-            break;
-        }
-
-        case 5: // Tremolo / Auto-Pan
-        {
-            uint32_t phase_step = (uint32_t)tremolo_freq * 133508;
-            tremolo_phase += phase_step;
-
-            uint32_t idx = tremolo_phase >> 23;
-            float32_t lfo = 0.0f;
-            if (idx < 256) {
-                lfo = (float32_t)sine_table[idx] / 32768.0f;
-            } else {
-                lfo = -(float32_t)sine_table[idx - 256] / 32768.0f;
-            }
-
-            if (auto_pan_mode == 0) // Tremolo
-            {
-                pan_gain_l = 0.6f + 0.4f * lfo;
-                pan_gain_r = pan_gain_l;
-            }
-            else // Auto-Pan
-            {
-                pan_gain_l = 0.5f + 0.5f * lfo;
-                pan_gain_r = 0.5f - 0.5f * lfo;
-            }
-            has_pan = 1;
-            break;
-        }
-
-        case 6: // IIR Biquad 4th Order Cascade (24 dB/oct)
-        {
-            float32_t x0 = (float32_t)processed;
-          
-            // Cascade 1
-            float32_t y0 = bq_b0 * x0 + bq_b1 * bq_x1 + bq_b2 * bq_x2 - bq_a1 * bq_y1 - bq_a2 * bq_y2;
-            bq_x2 = bq_x1;
-            bq_x1 = x0;
-            bq_y2 = bq_y1;
-            bq_y1 = y0;
-          
-            // Cascade 2
-            float32_t y0_2 = bq_b0 * y0 + bq_b1 * bq_x1_2 + bq_b2 * bq_x2_2 - bq_a1 * bq_y1_2 - bq_a2 * bq_y2_2;
-            bq_x2_2 = bq_x1_2;
-            bq_x1_2 = y0;
-            bq_y2_2 = bq_y1_2;
-            bq_y1_2 = y0_2;
-          
-            processed = (int64_t)y0_2;
-            break;
-        }
-
-        case 7: // Bitcrusher
-        {
-            bc_counter++;
-            if (bc_counter >= bc_downsample)
-            {
-                bc_counter = 0;
-                int32_t val = (int32_t)processed;
-                int32_t bits = (bc_bit_depth == 0) ? 8 : 4;
-                int32_t shift = 32 - bits;
-                val = (val >> shift) << shift;
-                bc_held_sample = val;
-            }
-            processed = bc_held_sample;
-            break;
-        }
-
-        default:
-            break;
+        processed = effect_table[currentEffect](processed, &pan_gain_l, &pan_gain_r, &has_pan);
     }
 
     /* Hard Limiter - protects against digital overflow clipping */
