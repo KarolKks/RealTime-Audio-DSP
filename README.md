@@ -137,3 +137,10 @@ cmake --build build
 ## Project in Action
 
 This section documents the physical hardware assembly, breadboard prototype testing setup, and live OLED graphical interface during active audio processing.
+<img width="1072" height="898" alt="image" src="https://github.com/user-attachments/assets/21ce9b99-1935-4ed5-8b61-3588db4be7b1" />
+
+<img width="570" height="676" alt="image" src="https://github.com/user-attachments/assets/bc1a7ee8-f85a-441d-a155-10e6a2a5d79e" />
+
+<img width="558" height="664" alt="image" src="https://github.com/user-attachments/assets/8a846931-b36d-4510-aaa1-bf215e823dbf" />
+
+
