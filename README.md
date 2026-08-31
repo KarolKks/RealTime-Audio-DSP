@@ -78,28 +78,47 @@ System execution is coordinated by the FreeRTOS real-time kernel across two prim
 
 ## Project Structure
 
+## Project Structure
+
 ```
+├── Drivers/
+│   ├── CMSIS/                       # ARM Cortex-M4 core headers and CMSIS-DSP library
+│   └── STM32L4xx_HAL_Driver/        # STMicroelectronics Hardware Abstraction Layer
 ├── Inc/
-│   ├── main.h               # CubeMX pin mappings and hardware constants
-│   ├── FreeRTOSConfig.h     # FreeRTOS scheduler configuration and heap settings
-│   ├── hw_audio.h           # SAI audio bus interface, DMA buffers, and event flags
-│   ├── hw_encoders.h        # Rotary encoder timers and digital debounce interface
-│   ├── hw_oled_sh1106.h     # OLED SPI driver and drawing routines declarations
-│   ├── dsp_effects.h        # DSP parameter declarations and effects structures
-│   ├── dsp_fft.h            # Fast Fourier Transform structures and API
-│   ├── audio_task.h         # Audio processing thread entry prototype
-│   └── ui_task.h            # User interface thread entry prototype
+│   ├── audio_task.h                 # Audio processing thread entry prototype
+│   ├── dsp_effects.h                # DSP parameter declarations and effects structures
+│   ├── dsp_fft.h                    # Fast Fourier Transform structures and API
+│   ├── FreeRTOSConfig.h             # FreeRTOS scheduler configuration and heap settings
+│   ├── hw_audio.h                   # SAI audio bus interface, DMA buffers, and event flags
+│   ├── hw_encoders.h                # Rotary encoder timers and digital debounce interface
+│   ├── hw_oled_sh1106.h             # OLED SPI driver and drawing routines declarations
+│   ├── main.h                       # CubeMX pin mappings and hardware constants
+│   ├── stm32l4xx_hal_conf.h         # HAL modules driver configuration
+│   ├── stm32l4xx_it.h               # Interrupt Service Routines (ISR) prototypes
+│   └── ui_task.h                    # User interface thread entry prototype
+├── Middlewares/
+│   └── Third_Party/FreeRTOS/        # FreeRTOS real-time kernel sources and Cortex-M4 port
 ├── Src/
-│   ├── main.c               # System clocks, peripheral initialization, and RTOS start
-│   ├── hw_audio.c           # Circular double-buffered DMA callbacks and SAI management
-│   ├── hw_encoders.c        # Hardware encoder timers and debounce state machine
-│   ├── hw_oled_sh1106.c     # Flash-optimized OLED SPI graphics driver (51-character font)
-│   ├── dsp_effects.c        # Function pointer dispatch table and DSP effect algorithms
-│   ├── dsp_fft.c            # Radix-2 DIT FFT implementation and logarithmic bin grouping
-│   ├── audio_task.c         # Real-time audio frame processing loop
-│   └── ui_task.c            # UI controller, table-driven descriptors, and OLED rendering
-├── CMakeLists.txt           # CMake build target configuration and compiler flags
-└── arm-none-eabi-gcc.cmake  # GNU ARM cross-compilation toolchain setup
+│   ├── audio_task.c                 # Real-time audio frame processing loop
+│   ├── dsp_effects.c                # Function pointer dispatch table and DSP effect algorithms
+│   ├── dsp_fft.c                    # Radix-2 DIT FFT implementation and logarithmic bin grouping
+│   ├── hw_audio.c                   # Circular double-buffered DMA callbacks and SAI management
+│   ├── hw_encoders.c                # Hardware encoder timers and debounce state machine
+│   ├── hw_oled_sh1106.c             # Flash-optimized OLED SPI graphics driver (51-character font)
+│   ├── main.c                       # System clocks, peripheral initialization, and RTOS start
+│   ├── startup_stm32l476rgtx.s      # ARM Cortex-M4 assembly startup vector table
+│   ├── stm32l4xx_hal_msp.c          # HAL MSP peripheral initialization callbacks
+│   ├── stm32l4xx_hal_timebase_tim.c # System tick timebase source using hardware timer
+│   ├── stm32l4xx_it.c               # Interrupt Service Routines handlers
+│   ├── syscalls.c                   # Low-level Newlib system calls implementation
+│   ├── sysmem.c                     # Dynamic memory allocation heap management
+│   ├── system_stm32l4xx.c           # System clock frequency setup configuration
+│   └── ui_task.c                    # UI controller, table-driven descriptors, and OLED rendering
+├── .gitignore                       # Git version control ignore rules
+├── arm-none-eabi-gcc.cmake          # GNU ARM cross-compilation toolchain setup
+├── CMakeLists.txt                   # CMake build target configuration and compiler flags
+├── README.md                        # Complete technical project documentation
+└── STM32L476RGTX_FLASH.ld           # Target MCU Flash and SRAM memory layout linker script
 ```
 
 ---
