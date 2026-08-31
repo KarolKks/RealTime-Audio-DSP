@@ -42,8 +42,8 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 target_sources(${PROJECT_NAME} PRIVATE
     # --- Core Application & Modular Code ---
     Src/main.c
-    Src/app_audio_task.c      # Audio processing thread (High Priority)
-    Src/app_ui_task.c         # OLED & Encoders thread (Low Priority)
+    Src/audio_task.c          # Audio processing thread (High Priority)
+    Src/ui_task.c             # OLED & Encoders thread (Low Priority)
     Src/dsp_effects.c         # Audio effects algorithms (RingMod, Delay, etc.)
     Src/dsp_fft.c             # Fast Fourier Transform for spectrum analysis
     Src/hw_audio.c            # SAI and DMA hardware configuration

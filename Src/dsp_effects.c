@@ -2,31 +2,38 @@
 #include <string.h>
 #include <math.h>
 
-/* Parameter definitions and default values */
-volatile int16_t volumeGain = 4;
-volatile int16_t currentEffect = 0;
-volatile int16_t ringmod_freq = 250;      // 50 Hz to 1500 Hz (default 250 Hz)
-volatile uint8_t ringmod_wave_shape = 0;   // 0 = sine, 1 = square
-volatile int16_t dist_gain = 5;            // Saturation level 1 to 25 (default 5)
-volatile uint8_t dist_type = 0;            // 0 = Soft-Clipping, 1 = Hard-Clipping
-volatile int16_t delay_time_ms = 150;     // Delay 50 ms to 600 ms (default 150 ms)
-volatile uint8_t delay_feedback_mode = 1;  // 0 = single echo, 1 = multiple echo (feedback)
-volatile int16_t pitch_enc2_val = 10;      // Encoder value for Pitch Shifter (default 10 = 1.0x)
-volatile int32_t pitch_S_q16 = 65536;      // Pitch factor in Q16 (65536 = 1.0x)
-volatile uint8_t isMuted = 0;              // Mute flag (0 = unmuted, 1 = muted)
+// Global runtime settings structure with default parameters
+volatile dsp_params_t g_dsp_params = {
+    .current_effect = DSP_EFFECT_CLEAN,
+    .volume_gain = 4,
+    .is_muted = false,
+    .ringmod_freq = 250,          // 50 Hz to 1500 Hz (default 250 Hz)
+    .ringmod_wave_shape = 0,      // 0 = sine, 1 = square
+    .dist_gain = 5,               // Saturation level 1 to 25 (default 5)
+    .dist_type = 0,               // 0 = Soft-Clipping, 1 = Hard-Clipping
+    .delay_time_ms = 150,         // Delay 50 ms to 600 ms (default 150 ms)
+    .delay_feedback_mode = 1,     // 0 = single echo, 1 = multiple echo (feedback)
+    .pitch_enc2_val = 10,         // Encoder value for Pitch Shifter (default 10 = 1.0x)
+    .pitch_S_q16 = DSP_Q16_ONE,   // Pitch factor in Q16 (65536 = 1.0x)
+    .tremolo_freq = 5,            // 1 Hz to 20 Hz (default 5 Hz)
+    .auto_pan_mode = 0,           // 0 = Tremolo, 1 = Auto-Pan
+    .filter_fc_idx = 10,          // Cutoff index 0 to 40 (default 10 = ~2100 Hz)
+    .filter_type = 0,             // 0 = Low-Pass, 1 = High-Pass
+    .bc_downsample = 4,           // Downsampling factor 1 to 30 (default 4)
+    .bc_bit_depth = 0,            // 0 = 8-bit, 1 = 4-bit
+    .gate_threshold_db = -45,     // Threshold -60 dB to -20 dB (default -45 dB)
+    .gate_release_mode = 1        // 0 = Fast, 1 = Slow
+};
 
-volatile int16_t tremolo_freq = 5;            // 1 Hz to 20 Hz (default 5 Hz)
-volatile uint8_t auto_pan_mode = 0;           // 0 = Tremolo, 1 = Auto-Pan
-volatile int16_t filter_fc_idx = 10;          // Cutoff index 0 to 40 (default 10 = ~2100 Hz)
-volatile uint8_t filter_type = 0;             // 0 = Low-Pass, 1 = High-Pass
-volatile float32_t bq_b0 = 1.0f, bq_b1 = 0.0f, bq_b2 = 0.0f, bq_a1 = 0.0f, bq_a2 = 0.0f;
-volatile int16_t bc_downsample = 4;           // Downsampling factor 1 to 30 (default 4)
-volatile uint8_t bc_bit_depth = 0;            // 0 = 8-bit, 1 = 4-bit
-volatile int16_t gate_threshold_db = -45;     // Threshold -60 dB to -20 dB (default -45 dB)
-volatile uint8_t gate_release_mode = 1;       // 0 = Fast, 1 = Slow
-volatile int32_t adjustable_gate_threshold = 26500; // Linear threshold value
+// double buffer for atomic biquad filter coefficients
+static dsp_biquad_coeffs_t s_biquad_coeffs[2] = {
+    { .b0 = 1.0f, .b1 = 0.0f, .b2 = 0.0f, .a1 = 0.0f, .a2 = 0.0f },
+    { .b0 = 1.0f, .b1 = 0.0f, .b2 = 0.0f, .a1 = 0.0f, .a2 = 0.0f }
+};
+static volatile uint8_t s_active_coeff_idx = 0;
+static volatile int32_t s_adjustable_gate_threshold = 26500;
 
-/* Sine Look-Up Table (256 entries for half cycle) */
+// Sine Look-Up Table (256 entries for half cycle)
 static const int16_t sine_table[256] = {
     0, 402, 804, 1206, 1607, 2009, 2410, 2811, 3211, 3611, 4011, 4410, 4807, 5205, 5601, 5997,
     6392, 6786, 7179, 7571, 7961, 8351, 8739, 9126, 9511, 9895, 10278, 10659, 11038, 11416, 11792, 12166,
@@ -46,46 +53,50 @@ static const int16_t sine_table[256] = {
     6392, 5997, 5601, 5205, 4807, 4410, 4011, 3611, 3211, 2811, 2410, 2009, 1607, 1206, 804, 402
 };
 
-/* Effect state variables */
+// Internal DSP buffers and state variables
 static uint32_t ringmod_phase = 0;
-
-#define DELAY_BUFFER_SIZE 20000
-static int16_t delayBuffer[DELAY_BUFFER_SIZE];
+static int16_t delayBuffer[DSP_DELAY_BUFFER_SIZE];
 static uint16_t delayWriteIdx = 0;
 
-#define PITCH_BUF_SIZE 8192
-static int16_t pitchBuffer[PITCH_BUF_SIZE];
+static int16_t pitchBuffer[DSP_PITCH_BUFFER_SIZE];
 static uint16_t pitchWriteIdx = 0;
 static int32_t pitchPhase = 0;
 
-/* DC Block and Noise Gate state */
+// DC Block and Noise Gate state
 static int32_t dc_block_state = 0;
 static int32_t prev_in = 0;
 static int32_t gate_envelope = 0;
 
-/* LFO, IIR Filters and Bitcrusher state */
+// LFO, IIR Filters and Bitcrusher state
 static uint32_t tremolo_phase = 0;
 static float32_t bq_x1 = 0.0f, bq_x2 = 0.0f, bq_y1 = 0.0f, bq_y2 = 0.0f;
 static float32_t bq_x1_2 = 0.0f, bq_x2_2 = 0.0f, bq_y1_2 = 0.0f, bq_y2_2 = 0.0f;
 static int32_t bc_held_sample = 0;
 static uint16_t bc_counter = 0;
 
-/* Typedef for effect processing function pointer */
+// Function pointer typedef for modular DSP effects
 typedef int64_t (*effect_process_fn)(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan);
 
-/* Individual effect processing functions */
+// Effect 0: Clean / Bypass
 static int64_t effect_clean(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
+    (void)pan_l;
+    (void)pan_r;
+    (void)has_pan;
     return processed;
 }
 
+// Effect 1: Robot (Ring Modulator)
 static int64_t effect_robot(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
-    uint32_t phase_step = (uint32_t)ringmod_freq * 133508;
+    (void)pan_l;
+    (void)pan_r;
+    (void)has_pan;
+    uint32_t phase_step = (uint32_t)g_dsp_params.ringmod_freq * DSP_LFO_PHASE_STEP_FACTOR;
     ringmod_phase += phase_step;
 
     int32_t mod_val = 0;
-    if (ringmod_wave_shape == 0) // Sine from LUT
+    if (g_dsp_params.ringmod_wave_shape == 0) // Sine from LUT
     {
         uint32_t idx = ringmod_phase >> 23; 
         if (idx < 256) {
@@ -102,11 +113,15 @@ static int64_t effect_robot(int64_t processed, float32_t *pan_l, float32_t *pan_
     return (processed * mod_val) >> 31;
 }
 
+// Effect 2: Distortion
 static int64_t effect_distortion(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
-    int64_t dist_signal = processed * dist_gain;
+    (void)pan_l;
+    (void)pan_r;
+    (void)has_pan;
+    int64_t dist_signal = processed * g_dsp_params.dist_gain;
 
-    if (dist_type == 1) // Hard-Clipping
+    if (g_dsp_params.dist_type == 1) // Hard-Clipping
     {
         if (dist_signal > 1073741823LL) dist_signal = 1073741823LL;
         else if (dist_signal < -1073741824LL) dist_signal = -1073741824LL;
@@ -126,22 +141,26 @@ static int64_t effect_distortion(int64_t processed, float32_t *pan_l, float32_t 
     return dist_signal;
 }
 
+// Effect 3: Delay / Echo
 static int64_t effect_delay(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
-    int32_t delay_samples = (delay_time_ms * 32170) / 1000;
-    if (delay_samples >= DELAY_BUFFER_SIZE) delay_samples = DELAY_BUFFER_SIZE - 1;
+    (void)pan_l;
+    (void)pan_r;
+    (void)has_pan;
+    int32_t delay_samples = (g_dsp_params.delay_time_ms * DSP_SAMPLE_RATE_INT) / 1000;
+    if (delay_samples >= DSP_DELAY_BUFFER_SIZE) delay_samples = DSP_DELAY_BUFFER_SIZE - 1;
     else if (delay_samples < 1) delay_samples = 1;
 
     int32_t readIdx = (int32_t)delayWriteIdx - delay_samples;
-    if (readIdx < 0) readIdx += DELAY_BUFFER_SIZE;
+    if (readIdx < 0) readIdx += DSP_DELAY_BUFFER_SIZE;
     int32_t delayedSample = ((int32_t)delayBuffer[readIdx]) << 16;
 
     int64_t mixed = processed + (delayedSample >> 1);
 
-    if (mixed > 2147483647LL) mixed = 2147483647LL;
-    else if (mixed < -2147483648LL) mixed = -2147483648LL;
+    if (mixed > DSP_INT32_MAX_LIMIT) mixed = DSP_INT32_MAX_LIMIT;
+    else if (mixed < DSP_INT32_MIN_LIMIT) mixed = DSP_INT32_MIN_LIMIT;
 
-    if (delay_feedback_mode == 0) // single echo
+    if (g_dsp_params.delay_feedback_mode == 0) // single echo
     {
         delayBuffer[delayWriteIdx] = (int16_t)(processed >> 16);
     }
@@ -151,16 +170,20 @@ static int64_t effect_delay(int64_t processed, float32_t *pan_l, float32_t *pan_
     }
 
     delayWriteIdx++;
-    if (delayWriteIdx >= DELAY_BUFFER_SIZE) delayWriteIdx = 0;
+    if (delayWriteIdx >= DSP_DELAY_BUFFER_SIZE) delayWriteIdx = 0;
 
     return mixed;
 }
 
+// Effect 4: Pitch Shifter
 static int64_t effect_pitch_shifter(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
+    (void)pan_l;
+    (void)pan_r;
+    (void)has_pan;
     pitchBuffer[pitchWriteIdx] = (int16_t)(processed >> 16);
 
-    pitchPhase += (65536 - pitch_S_q16);
+    pitchPhase += (DSP_Q16_ONE - g_dsp_params.pitch_S_q16);
     if (pitchPhase >= (4096 << 16)) pitchPhase -= (4096 << 16);
     else if (pitchPhase < 0) pitchPhase += (4096 << 16);
 
@@ -168,8 +191,8 @@ static int64_t effect_pitch_shifter(int64_t processed, float32_t *pan_l, float32
     int32_t p2 = p1 + 2048;
     if (p2 >= 4096) p2 -= 4096;
 
-    int32_t r1 = ((int32_t)pitchWriteIdx - p1 - 10) & (PITCH_BUF_SIZE - 1);
-    int32_t r2 = ((int32_t)pitchWriteIdx - p2 - 10) & (PITCH_BUF_SIZE - 1);
+    int32_t r1 = ((int32_t)pitchWriteIdx - p1 - 10) & (DSP_PITCH_BUFFER_SIZE - 1);
+    int32_t r2 = ((int32_t)pitchWriteIdx - p2 - 10) & (DSP_PITCH_BUFFER_SIZE - 1);
 
     int32_t s1 = pitchBuffer[r1];
     int32_t s2 = pitchBuffer[r2];
@@ -182,13 +205,14 @@ static int64_t effect_pitch_shifter(int64_t processed, float32_t *pan_l, float32
     int64_t mixed_val = ((int64_t)s1 * w1 + (int64_t)s2 * w2) >> 15;
     processed = mixed_val << 16;
 
-    pitchWriteIdx = (pitchWriteIdx + 1) & (PITCH_BUF_SIZE - 1);
+    pitchWriteIdx = (pitchWriteIdx + 1) & (DSP_PITCH_BUFFER_SIZE - 1);
     return processed;
 }
 
+// Effect 5: Tremolo / Auto-Pan
 static int64_t effect_tremolo_pan(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
-    uint32_t phase_step = (uint32_t)tremolo_freq * 133508;
+    uint32_t phase_step = (uint32_t)g_dsp_params.tremolo_freq * DSP_LFO_PHASE_STEP_FACTOR;
     tremolo_phase += phase_step;
 
     uint32_t idx = tremolo_phase >> 23;
@@ -199,7 +223,7 @@ static int64_t effect_tremolo_pan(int64_t processed, float32_t *pan_l, float32_t
         lfo = -(float32_t)sine_table[idx - 256] / 32768.0f;
     }
 
-    if (auto_pan_mode == 0) // Tremolo
+    if (g_dsp_params.auto_pan_mode == 0) // Tremolo
     {
         *pan_l = 0.6f + 0.4f * lfo;
         *pan_r = *pan_l;
@@ -213,35 +237,46 @@ static int64_t effect_tremolo_pan(int64_t processed, float32_t *pan_l, float32_t
     return processed;
 }
 
+// Effect 6: BiQuad Filter
 static int64_t effect_filter(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
+    (void)pan_l;
+    (void)pan_r;
+    (void)has_pan;
     float32_t x0 = (float32_t)processed;
-  
+
+    // Fetch snapshot of active coefficients
+    const dsp_biquad_coeffs_t *c = &s_biquad_coeffs[s_active_coeff_idx];
+
     // Cascade 1
-    float32_t y0 = bq_b0 * x0 + bq_b1 * bq_x1 + bq_b2 * bq_x2 - bq_a1 * bq_y1 - bq_a2 * bq_y2;
+    float32_t y0 = c->b0 * x0 + c->b1 * bq_x1 + c->b2 * bq_x2 - c->a1 * bq_y1 - c->a2 * bq_y2;
     bq_x2 = bq_x1;
     bq_x1 = x0;
     bq_y2 = bq_y1;
     bq_y1 = y0;
-  
+
     // Cascade 2
-    float32_t y0_2 = bq_b0 * y0 + bq_b1 * bq_x1_2 + bq_b2 * bq_x2_2 - bq_a1 * bq_y1_2 - bq_a2 * bq_y2_2;
+    float32_t y0_2 = c->b0 * y0 + c->b1 * bq_x1_2 + c->b2 * bq_x2_2 - c->a1 * bq_y1_2 - c->a2 * bq_y2_2;
     bq_x2_2 = bq_x1_2;
     bq_x1_2 = y0;
     bq_y2_2 = bq_y1_2;
     bq_y1_2 = y0_2;
-  
+
     return (int64_t)y0_2;
 }
 
+// Effect 7: Bitcrusher
 static int64_t effect_bitcrusher(int64_t processed, float32_t *pan_l, float32_t *pan_r, uint8_t *has_pan)
 {
+    (void)pan_l;
+    (void)pan_r;
+    (void)has_pan;
     bc_counter++;
-    if (bc_counter >= bc_downsample)
+    if (bc_counter >= g_dsp_params.bc_downsample)
     {
         bc_counter = 0;
         int32_t val = (int32_t)processed;
-        int32_t bits = (bc_bit_depth == 0) ? 8 : 4;
+        int32_t bits = (g_dsp_params.bc_bit_depth == 0) ? 8 : 4;
         int32_t shift = 32 - bits;
         val = (val >> shift) << shift;
         bc_held_sample = val;
@@ -249,17 +284,17 @@ static int64_t effect_bitcrusher(int64_t processed, float32_t *pan_l, float32_t 
     return bc_held_sample;
 }
 
-/* Dispatch table of function pointers mapping to currentEffect ID */
-static const effect_process_fn effect_table[9] = {
-    effect_clean,         // 0: Clean / Bypass
-    effect_robot,         // 1: Robot (Ring Modulator)
-    effect_distortion,    // 2: Distortion
-    effect_delay,         // 3: Delay
-    effect_pitch_shifter, // 4: Pitch Shifter
-    effect_tremolo_pan,   // 5: Tremolo / Auto-Pan
-    effect_filter,        // 6: IIR Filter
-    effect_bitcrusher,    // 7: Bitcrusher
-    effect_clean          // 8: Noise Gate (effect math is bypass)
+// Dispatch table mapping effect IDs to processing callbacks
+static const effect_process_fn effect_table[DSP_EFFECT_COUNT] = {
+    [DSP_EFFECT_CLEAN]       = effect_clean,
+    [DSP_EFFECT_ROBOT]       = effect_robot,
+    [DSP_EFFECT_DISTORTION]  = effect_distortion,
+    [DSP_EFFECT_DELAY]       = effect_delay,
+    [DSP_EFFECT_PITCH]       = effect_pitch_shifter,
+    [DSP_EFFECT_TREMOLO_PAN] = effect_tremolo_pan,
+    [DSP_EFFECT_FILTER]      = effect_filter,
+    [DSP_EFFECT_BITCRUSHER]  = effect_bitcrusher,
+    [DSP_EFFECT_GATE]        = effect_clean // Gate math runs before effect dispatch
 };
 
 void dsp_effects_init(void)
@@ -284,23 +319,23 @@ void dsp_effects_init(void)
     bc_held_sample = 0;
     bc_counter = 0;
 
-    /* Initialize filter and gate parameters */
+    // Initialize filter and gate parameters
     dsp_effects_update_params();
 }
 
 void dsp_effects_update_params(void)
 {
-    /* Recalculate biquad filter coefficients */
-    float32_t fs = 32170.0f;
-    float32_t fc = 100.0f * powf(1.127f, (float32_t)filter_fc_idx);
+    // 1. Recalculate biquad filter coefficients
+    float32_t fs = DSP_SAMPLE_RATE_HZ;
+    float32_t fc = 100.0f * powf(1.127f, (float32_t)g_dsp_params.filter_fc_idx);
     if (fc > 15000.0f) fc = 15000.0f;
-  
+
     float32_t w0 = 2.0f * 3.14159265f * fc / fs;
     float32_t alpha = sinf(w0) / (2.0f * 0.707f); // Q = 0.707
     float32_t cos_w0 = cosf(w0);
-  
+
     float32_t b0, b1, b2, a0, a1, a2;
-    if (filter_type == 0) // Low-Pass
+    if (g_dsp_params.filter_type == 0) // Low-Pass
     {
         b0 = (1.0f - cos_w0) / 2.0f;
         b1 = 1.0f - cos_w0;
@@ -318,29 +353,34 @@ void dsp_effects_update_params(void)
         a1 = -2.0f * cos_w0;
         a2 = 1.0f - alpha;
     }
-  
-    bq_b0 = b0 / a0;
-    bq_b1 = b1 / a0;
-    bq_b2 = b2 / a0;
-    bq_a1 = a1 / a0;
-    bq_a2 = a2 / a0;
 
-    /* Recalculate noise gate threshold */
-    float32_t ratio = powf(10.0f, (float32_t)gate_threshold_db / 20.0f);
-    adjustable_gate_threshold = (int32_t)(8388608.0f * ratio);
+    // Write to shadow buffer index
+    uint8_t next_idx = s_active_coeff_idx ^ 1;
+    s_biquad_coeffs[next_idx].b0 = b0 / a0;
+    s_biquad_coeffs[next_idx].b1 = b1 / a0;
+    s_biquad_coeffs[next_idx].b2 = b2 / a0;
+    s_biquad_coeffs[next_idx].a1 = a1 / a0;
+    s_biquad_coeffs[next_idx].a2 = a2 / a0;
+
+    // Atomically swap active coefficient buffer
+    s_active_coeff_idx = next_idx;
+
+    //Recalculate noise gate threshold
+    float32_t ratio = powf(10.0f, (float32_t)g_dsp_params.gate_threshold_db / 20.0f);
+    s_adjustable_gate_threshold = (int32_t)(DSP_MAX_INT24_F * ratio);
 }
 
 void dsp_process_sample(int32_t input_sample, int32_t *output_l, int32_t *output_r)
 {
     int32_t sample = input_sample;
 
-    /* DC Block Filter (constant offset removal) */
+    // DC Block Filter (constant offset removal)
     int32_t current_in = sample;
     dc_block_state = current_in - prev_in + (int32_t)(((int64_t)dc_block_state * 32737) >> 15);
     prev_in = current_in;
     sample = dc_block_state;
 
-    /* Soft Noise Gate / Expander */
+    // Soft Noise Gate / Expander
     int32_t abs_sample = sample;
     if (abs_sample < 0) abs_sample = -abs_sample;
 
@@ -350,14 +390,14 @@ void dsp_process_sample(int32_t input_sample, int32_t *output_l, int32_t *output
         gate_envelope = (int32_t)(((int64_t)gate_envelope * 32737) >> 15); // slow release
     }
 
-    int32_t gate_gain = 32768; // Q15 format (1.0 = 32768)
-    if (currentEffect == 8) // Adjustable Noise Gate
+    int32_t gate_gain = DSP_Q15_ONE;
+    if (g_dsp_params.current_effect == DSP_EFFECT_GATE) // Adjustable Noise Gate
     {
-        int32_t th = adjustable_gate_threshold;
+        int32_t th = s_adjustable_gate_threshold;
         if (gate_envelope < th) {
             gate_gain = 0;
         } else if (gate_envelope < th * 2) {
-            gate_gain = (int32_t)(((int64_t)(gate_envelope - th) * 32768) / th);
+            gate_gain = (int32_t)(((int64_t)(gate_envelope - th) * DSP_Q15_ONE) / th);
         }
     }
     else // Standard Noise Gate
@@ -371,27 +411,27 @@ void dsp_process_sample(int32_t input_sample, int32_t *output_l, int32_t *output
 
     sample = (int32_t)(((int64_t)sample * gate_gain) >> 15);
 
-    /* Apply Gain or Mute */
+    // Apply Gain or Mute
     int64_t processed = 0;
-    if (!isMuted)
+    if (!g_dsp_params.is_muted)
     {
-        processed = (int64_t)sample * volumeGain;
+        processed = (int64_t)sample * g_dsp_params.volume_gain;
     }
 
-    /* Panning gains (L/R) for Auto-Pan */
+    // Panning gains (L/R) for Auto-Pan
     float32_t pan_gain_l = 1.0f;
     float32_t pan_gain_r = 1.0f;
     uint8_t has_pan = 0;
 
-    /* Process active DSP effect using the lookup table of function pointers */
-    if (currentEffect >= 0 && currentEffect < 9)
+    // Process active DSP effect via dispatch table
+    if (g_dsp_params.current_effect < DSP_EFFECT_COUNT)
     {
-        processed = effect_table[currentEffect](processed, &pan_gain_l, &pan_gain_r, &has_pan);
+        processed = effect_table[g_dsp_params.current_effect](processed, &pan_gain_l, &pan_gain_r, &has_pan);
     }
 
-    /* Hard Limiter - protects against digital overflow clipping */
-    if (processed > 2147483647LL)  processed = 2147483647LL;
-    if (processed < -2147483648LL) processed = -2147483648LL;
+    // Hard Limiter - protects against digital overflow clipping
+    if (processed > DSP_INT32_MAX_LIMIT)  processed = DSP_INT32_MAX_LIMIT;
+    if (processed < DSP_INT32_MIN_LIMIT) processed = DSP_INT32_MIN_LIMIT;
 
     if (has_pan)
     {

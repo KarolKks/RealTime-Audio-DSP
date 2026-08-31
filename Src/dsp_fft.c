@@ -2,12 +2,12 @@
 #include <string.h>
 #include <math.h>
 
-/* Visualisation parameters shared with OLED */
+// Visualisation parameters shared with OLED
 volatile float32_t global_fft_mags[16] = {0};
 volatile int32_t global_vu_level = 0;
 volatile int32_t fft_init_status = -99;
 
-/* Radix-2 FFT internal structures */
+// Radix-2 FFT internal structures
 static uint16_t bit_rev_256[FFT_SIZE];
 static float32_t twiddle_cos_256[FFT_SIZE / 2];
 static float32_t twiddle_sin_256[FFT_SIZE / 2];
@@ -15,7 +15,7 @@ static uint8_t my_fft_initialized = 0;
 
 void dsp_fft_init(void)
 {
-    /* Generate bit-reversal table for 256 points */
+    // 1. Generate bit-reversal table for 256 points
     for (int i = 0; i < FFT_SIZE; i++)
     {
         int rev = 0;
@@ -28,7 +28,7 @@ void dsp_fft_init(void)
         bit_rev_256[i] = rev;
     }
 
-    /* Generate twiddle factor table (cos and sin) */
+    // 2. Generate twiddle factor table (cos and sin)
     float32_t angle;
     for (int i = 0; i < FFT_SIZE / 2; i++)
     {
@@ -48,18 +48,18 @@ static void my_fft_compute(const float32_t *input, float32_t *output_mag)
         dsp_fft_init();
     }
 
-    /* Align variables to 8-byte boundary for optimal FPU memory access */
+    // Align variables to 8-byte boundary for optimal FPU memory access
     static float32_t re[FFT_SIZE] __attribute__((aligned(8)));
     static float32_t im[FFT_SIZE] __attribute__((aligned(8)));
 
-    /*Re-order input values using precomputed bit-reversal table */
+    // Re-order input values using precomputed bit-reversal table
     for (int i = 0; i < FFT_SIZE; i++)
     {
         re[bit_rev_256[i]] = input[i];
         im[i] = 0.0f;
     }
 
-    /* Run FFT Butterfly stages (Radix-2 DIT FFT) */
+    // Run FFT Butterfly stages (Radix-2 DIT FFT)
     for (int len = 2; len <= FFT_SIZE; len <<= 1)
     {
         int half_len = len >> 1;
@@ -85,7 +85,7 @@ static void my_fft_compute(const float32_t *input, float32_t *output_mag)
         }
     }
 
-    /*Compute magnitude for the first 128 bins (DC to fs/2) */
+    // Compute magnitude for the first 128 bins (DC to fs/2)
     output_mag[0] = re[0] < 0.0f ? -re[0] : re[0];
     for (int k = 1; k < 128; k++)
     {
@@ -100,20 +100,20 @@ void dsp_fft_process(const int32_t *pInMono)
     static float32_t fft_in[256] __attribute__((aligned(8))) = {0};
     static float32_t mag[128] __attribute__((aligned(8)));
 
-    /*Shift buffer by 128 samples (sliding window) */
+    // Shift buffer by 128 samples (sliding window)
     memmove(&fft_in[0], &fft_in[128], 128 * sizeof(float32_t));
     
-    /* Normalize and copy new 128 mono samples into the buffer */
+    // Normalize and copy new 128 mono samples into the buffer
     for (int j = 0; j < 128; j++)
     {
         // scale from 24-bit range (max 8388608) to float [-1.0f, 1.0f]
         fft_in[128 + j] = (float32_t)pInMono[j] / 8388608.0f;
     }
 
-    /*Calculate FFT magnitude spectrum */
+    //Calculate FFT magnitude spectrum
     my_fft_compute(fft_in, mag);
 
-    /*Logarithmic grouping of 128 bins into 16 OLED spectrum bars */
+    //Logarithmic grouping of 128 bins into 16 OLED spectrum bars
     const uint8_t bin_groups[16][2] = {
         {1, 1},   // 125 Hz
         {2, 2},   // 250 Hz
@@ -146,7 +146,7 @@ void dsp_fft_process(const int32_t *pInMono)
         temp_mags[bar] = sum / count;
     }
 
-    /*Update global variables for the OLED visualizer task */
+    // Update global variables for the OLED visualizer task
     for (int bar = 0; bar < 16; bar++)
     {
         global_fft_mags[bar] = temp_mags[bar];

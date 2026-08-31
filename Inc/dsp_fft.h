@@ -1,13 +1,13 @@
 #ifndef DSP_FFT_H_
 #define DSP_FFT_H_
 
-#include "stm32l4xx_hal.h"
-#include <string.h>
-#include <math.h>
+#include <stdint.h>
+#include <stdbool.h>
+#include "arm_math.h"
 
 #define FFT_SIZE 256
 
-/* Visualisation data shared between DSP processing and OLED task */
+// Visualisation data shared between DSP processing and OLED task
 extern volatile float32_t global_fft_mags[16];
 extern volatile int32_t global_vu_level;
 extern volatile int32_t fft_init_status;
