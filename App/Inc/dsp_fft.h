@@ -7,7 +7,7 @@
 
 #define FFT_SIZE 256
 
-// Visualisation data shared between DSP processing and OLED task
+// Application visualisation data shared between DSP processing and UI task
 extern volatile float32_t global_fft_mags[16];
 extern volatile int32_t global_vu_level;
 extern volatile int32_t fft_init_status;

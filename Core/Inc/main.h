@@ -9,9 +9,6 @@ extern "C" {
 #include "stm32l4xx_hal.h"
 #include "cmsis_os.h"
 #include "bsp.h"
-#include "hw_audio.h"
-#include "audio_task.h"
-#include "ui_task.h"
 
 /* Exported functions prototypes ---------------------------------------------*/
 /**

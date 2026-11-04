@@ -2,15 +2,14 @@
 #define AUDIO_TASK_H_
 
 #include "cmsis_os.h"
-#include "dsp_effects.h"
 
 /**
- * @brief  FreeRTOS task function for Real-Time DSP Audio processing.
+ * @brief  RTOS task function for real-time DSP audio processing.
  *         Waits for DMA Half/Full Transfer flags, processes audio samples
  *         through active effects, calculates VU meter and triggers FFT visualizer
  * @param  argument: Task argument pointer
  * @retval None
  */
-void StartDefaultTask(void *argument);
+void audio_task_entry(void *argument);
 
 #endif /* AUDIO_TASK_H_ */

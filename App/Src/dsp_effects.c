@@ -2,7 +2,7 @@
 #include <string.h>
 #include <math.h>
 
-// Global runtime settings structure with default parameters
+// Application-owned runtime settings structure with default parameters
 volatile dsp_params_t g_dsp_params = {
     .current_effect = DSP_EFFECT_CLEAN,
     .volume_gain = 4,

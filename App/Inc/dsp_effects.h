@@ -80,7 +80,7 @@ typedef struct {
     uint8_t gate_release_mode;
 } dsp_params_t;
 
-// Global runtime settings structure
+// Application-owned runtime settings structure
 extern volatile dsp_params_t g_dsp_params;
 
 /**

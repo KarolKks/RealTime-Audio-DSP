@@ -2,7 +2,7 @@
 #include <string.h>
 #include <math.h>
 
-// Visualisation parameters shared with OLED
+// Visualisation parameters shared with the UI task
 volatile float32_t global_fft_mags[16] = {0};
 volatile int32_t global_vu_level = 0;
 volatile int32_t fft_init_status = -99;

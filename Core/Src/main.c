@@ -6,22 +6,7 @@
   */
 
 #include "main.h"
-
-
-/* RTOS Thread Handles and Attributes ----------------------------------------*/
-osThreadId_t defaultTaskHandle;
-const osThreadAttr_t defaultTask_attributes = {
-    .name       = "defaultTask",
-    .stack_size = 256 * 4,                         // 1024 bytes for audio DSP & FPU context
-    .priority   = (osPriority_t)osPriorityRealtime // Hard real-time priority for DSP
-};
-
-osThreadId_t encoderTaskHandle;
-const osThreadAttr_t encoderTask_attributes = {
-    .name       = "encoderTask",
-    .stack_size = 1024 * 4,
-    .priority   = (osPriority_t)osPriorityLow       // Low priority for UI & graphics rendering
-};
+#include "tasks.h"
 
 /**
   * @brief  The application entry point.
@@ -32,18 +17,21 @@ int main(void)
     /* 1. Initialize Board Support Package (MCU Clocks, GPIO, SPI1, Timers, SAI1/DMA) */
     bsp_init();
 
-    /* 2. Initialize Hardware Audio Stream (DMA circular buffers & callbacks) */
-    hw_audio_init();
+    /* Initialize the RTOS kernel and create application tasks. */
+    if (osKernelInitialize() != osOK)
+    {
+        Error_Handler();
+    }
 
-    /* 3. Initialize RTOS Kernel */
-    osKernelInitialize();
+    if (!tasks_create())
+    {
+        Error_Handler();
+    }
 
-    /* 4. Create Tasks */
-    defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
-    encoderTaskHandle = osThreadNew(StartEncoderTask, NULL, &encoderTask_attributes);
-
-    /* 5. Start Scheduler */
-    osKernelStart();
+    if (osKernelStart() != osOK)
+    {
+        Error_Handler();
+    }
 
     /* We should never get here as control is now taken by the scheduler */
     while (1)

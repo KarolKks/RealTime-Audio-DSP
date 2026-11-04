@@ -9,7 +9,7 @@
 #include <string.h>
 #include <math.h>
 
-// Effect UI Descriptor Structure (Table-Driven Metadata & Callbacks)
+// UI metadata and callbacks for the DSP effects.
 typedef struct {
     const char *name;              // Display name (e.g. "ROBOT", "DIST")
     const char *param_label;       // Parameter label (e.g. "FREQ", "SAT")
@@ -114,7 +114,7 @@ static const effect_ui_desc_t effects_desc[DSP_EFFECT_COUNT] = {
     [DSP_EFFECT_GATE]        = { "BRAMK", "THR",  20, 60,  20, 60,   gate_btn2_press,    gate_get_enc,    gate_set_param,    gate_get_bar,    gate_format_str    }
 };
 
-void StartEncoderTask(void *argument)
+void ui_task_entry(void *argument)
 {
     (void)argument;
     // Initialize external components and graphics buffer

@@ -1,4 +1,5 @@
 #include "bsp_sai.h"
+#include "bsp.h"
 #include "stm32l4xx_hal.h"
 #include <stddef.h>
 
@@ -53,7 +54,10 @@ static void MX_SAI1_Init(void)
     hsai_BlockA1.SlotInit.SlotSize           = SAI_SLOTSIZE_DATASIZE;
     hsai_BlockA1.SlotInit.SlotNumber         = 2;
     hsai_BlockA1.SlotInit.SlotActive         = 0x0000FFFF;
-    HAL_SAI_Init(&hsai_BlockA1);
+    if (HAL_SAI_Init(&hsai_BlockA1) != HAL_OK)
+    {
+        bsp_error_handler();
+    }
 
     /* Block B: Synchronous Slave RX */
     hsai_BlockB1.Instance                    = SAI1_Block_B;
@@ -78,7 +82,10 @@ static void MX_SAI1_Init(void)
     hsai_BlockB1.SlotInit.SlotSize           = SAI_SLOTSIZE_DATASIZE;
     hsai_BlockB1.SlotInit.SlotNumber         = 2;
     hsai_BlockB1.SlotInit.SlotActive         = 0x0000FFFF;
-    HAL_SAI_Init(&hsai_BlockB1);
+    if (HAL_SAI_Init(&hsai_BlockB1) != HAL_OK)
+    {
+        bsp_error_handler();
+    }
 }
 
 void bsp_sai_init(void)
@@ -101,6 +108,10 @@ bool bsp_sai_start_duplex_dma(int32_t *rx_buf, int32_t *tx_buf, uint16_t size)
 
     if (HAL_SAI_Transmit_DMA(&hsai_BlockA1, (uint8_t *)tx_buf, size) != HAL_OK)
     {
+        if (HAL_SAI_DMAStop(&hsai_BlockB1) != HAL_OK)
+        {
+            bsp_error_handler();
+        }
         return false;
     }
 
@@ -130,4 +141,3 @@ void HAL_SAI_RxCpltCallback(SAI_HandleTypeDef *hsai)
         s_full_cplt_cb(s_cb_context);
     }
 }
-
