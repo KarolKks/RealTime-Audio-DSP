@@ -17,9 +17,14 @@
 void bsp_init(void);
 
 /**
+ * @brief  Blocking millisecond delay using system time base.
+ * @param  ms: Number of milliseconds to delay.
+ */
+void bsp_delay_ms(uint32_t ms);
+
+/**
  * @brief  BSP-level error handler invoked on critical peripheral failure.
  */
 void bsp_error_handler(void);
 
 #endif /* BSP_H_ */
-

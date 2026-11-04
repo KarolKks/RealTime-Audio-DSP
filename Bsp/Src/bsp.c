@@ -1,6 +1,11 @@
 #include "bsp.h"
 #include "stm32l4xx_hal.h"
 
+void bsp_delay_ms(uint32_t ms)
+{
+    HAL_Delay(ms);
+}
+
 void bsp_error_handler(void)
 {
     __disable_irq();

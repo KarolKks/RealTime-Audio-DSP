@@ -26,6 +26,8 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Inc
     ${CMAKE_SOURCE_DIR}/Bsp/Inc
+    ${CMAKE_SOURCE_DIR}/Components/Inc
+    ${CMAKE_SOURCE_DIR}/App/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/STM32L4xx_HAL_Driver/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32L4xx/Include
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
@@ -47,6 +49,15 @@ target_sources(${PROJECT_NAME} PRIVATE
     Bsp/Src/bsp_timers.c
     Bsp/Src/bsp_sai.c
 
+    # --- External Components ---
+    Components/Src/sh1106.c
+    Components/Src/rotary_encoder.c
+
+    # --- Application Graphics ---
+    App/Src/gfx.c
+    App/Src/font5x7.c
+    App/Src/ui_widgets.c
+
     # --- Core Application & Modular Code ---
     Src/main.c
     Src/audio_task.c          # Audio processing thread (High Priority)
@@ -54,8 +65,6 @@ target_sources(${PROJECT_NAME} PRIVATE
     Src/dsp_effects.c         # Audio effects algorithms (RingMod, Delay, etc.)
     Src/dsp_fft.c             # Fast Fourier Transform for spectrum analysis
     Src/hw_audio.c            # SAI and DMA hardware configuration
-    Src/hw_encoders.c         # Hardware timers setup for rotary encoders
-    Src/hw_oled_sh1106.c      # SH1106 OLED display SPI driver
 
     # --- System & Interrupts ---
     Src/freertos.c

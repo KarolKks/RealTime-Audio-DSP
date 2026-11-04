@@ -1,6 +1,8 @@
 #include "ui_task.h"
-#include "hw_encoders.h"
-#include "hw_oled_sh1106.h"
+#include "sh1106.h"
+#include "rotary_encoder.h"
+#include "gfx.h"
+#include "ui_widgets.h"
 #include "dsp_effects.h"
 #include "dsp_fft.h"
 #include <stdio.h>
@@ -115,16 +117,17 @@ static const effect_ui_desc_t effects_desc[DSP_EFFECT_COUNT] = {
 void StartEncoderTask(void *argument)
 {
     (void)argument;
-    // Initialize OLED display and Encoders timer interfaces
-    hw_encoders_init();
-    SH1106_Init();
+    // Initialize external components and graphics buffer
+    rotary_encoder_init();
+    sh1106_init();
+    gfx_init();
 
     // Force recalculation of biquads and noise gate parameters to defaults
     dsp_effects_update_params();
 
     // Synchronize encoder hardware timer counters with initial parameters
-    hw_encoders_set_count1(g_dsp_params.current_effect * 2);
-    hw_encoders_set_count2(g_dsp_params.volume_gain);
+    rotary_encoder_set_value(ENCODER_1, g_dsp_params.current_effect * 2);
+    rotary_encoder_set_value(ENCODER_2, g_dsp_params.volume_gain);
 
     int32_t lastEnc1 = g_dsp_params.current_effect * 2;
     int16_t lastEnc2 = g_dsp_params.volume_gain;
@@ -137,16 +140,16 @@ void StartEncoderTask(void *argument)
     for (;;)
     {
         // 1. Read and debounce buttons and encoder hardware counters
-        hw_encoders_update();
+        rotary_encoder_update();
 
         // Handle Button 1 (Switch 1) - Bypass / Mute logic
-        if (hw_encoders_is_btn1_pressed())
+        if (rotary_encoder_is_button_clicked(BUTTON_1))
         {
             if (g_dsp_params.current_effect != DSP_EFFECT_CLEAN)
             {
                 g_dsp_params.current_effect = DSP_EFFECT_CLEAN;
-                hw_encoders_set_count1(0);
-                hw_encoders_set_count2(g_dsp_params.volume_gain);
+                rotary_encoder_set_value(ENCODER_1, 0);
+                rotary_encoder_set_value(ENCODER_2, g_dsp_params.volume_gain);
                 lastEnc1 = 0;
                 lastEnc2 = g_dsp_params.volume_gain;
             }
@@ -157,29 +160,29 @@ void StartEncoderTask(void *argument)
         }
 
         // Handle Button 2 (Switch 2) - Reset active parameter / Toggle submodes
-        if (hw_encoders_is_btn2_pressed())
+        if (rotary_encoder_is_button_clicked(BUTTON_2))
         {
             if (g_dsp_params.current_effect < DSP_EFFECT_COUNT)
             {
                 const effect_ui_desc_t *fx = &effects_desc[g_dsp_params.current_effect];
                 fx->on_btn2_press();
                 int16_t new_enc = fx->get_encoder_val();
-                hw_encoders_set_count2(new_enc);
+                rotary_encoder_set_value(ENCODER_2, new_enc);
                 lastEnc2 = new_enc;
             }
         }
 
         // 2. Process Encoder 1 - Effect Selection
-        int32_t enc1 = hw_encoders_get_count1();
+        int32_t enc1 = rotary_encoder_get_value(ENCODER_1);
         if (enc1 < 0)
         {
             enc1 = 0;
-            hw_encoders_set_count1(0);
+            rotary_encoder_set_value(ENCODER_1, 0);
         }
         else if (enc1 > (DSP_EFFECT_COUNT - 1) * 2)
         {
             enc1 = (DSP_EFFECT_COUNT - 1) * 2;
-            hw_encoders_set_count1(enc1);
+            rotary_encoder_set_value(ENCODER_1, enc1);
         }
 
         if (enc1 != lastEnc1)
@@ -190,7 +193,7 @@ void StartEncoderTask(void *argument)
                 g_dsp_params.current_effect = effect;
                 const effect_ui_desc_t *fx = &effects_desc[g_dsp_params.current_effect];
                 int16_t new_enc = fx->get_encoder_val();
-                hw_encoders_set_count2(new_enc);
+                rotary_encoder_set_value(ENCODER_2, new_enc);
                 lastEnc2 = new_enc;
             }
             lastEnc1 = enc1;
@@ -200,17 +203,17 @@ void StartEncoderTask(void *argument)
         if (g_dsp_params.current_effect < DSP_EFFECT_COUNT)
         {
             const effect_ui_desc_t *fx = &effects_desc[g_dsp_params.current_effect];
-            int16_t enc2 = hw_encoders_get_count2();
+            int16_t enc2 = (int16_t)rotary_encoder_get_value(ENCODER_2);
 
             if (enc2 < fx->enc_min)
             {
                 enc2 = fx->enc_min;
-                hw_encoders_set_count2(fx->enc_min);
+                rotary_encoder_set_value(ENCODER_2, fx->enc_min);
             }
             else if (enc2 > fx->enc_max)
             {
                 enc2 = fx->enc_max;
-                hw_encoders_set_count2(fx->enc_max);
+                rotary_encoder_set_value(ENCODER_2, fx->enc_max);
             }
 
             if (enc2 != lastEnc2)
@@ -220,8 +223,8 @@ void StartEncoderTask(void *argument)
             }
         }
 
-        // 4. OLED Rendering
-        SH1106_Clear();
+        // 4. OLED Rendering via GFX in RAM
+        gfx_clear();
 
         if (g_dsp_params.current_effect < DSP_EFFECT_COUNT)
         {
@@ -238,24 +241,21 @@ void StartEncoderTask(void *argument)
             {
                 sprintf(line1_buf, "EFEKT: %s", fx->name);
             }
-            SH1106_DrawStr(0, 0, line1_buf, 1);
+            gfx_draw_str(0, 0, line1_buf, 1);
 
             // Format parameter string and right-align at X = 127
             fx->format_val_str(val_buf);
             uint8_t val_len = strlen(val_buf);
             int16_t x_pos = 127 - (val_len * 6);
-            SH1106_DrawStr(x_pos, 0, val_buf, 1);
+            gfx_draw_str(x_pos, 0, val_buf, 1);
 
             // Render Row 2: Parameter label and progress bar
-            SH1106_DrawStr(0, 8, fx->param_label, 1);
-            DrawProgressBar(32, 9, 64, 6, fx->get_bar_val(), fx->bar_min, fx->bar_max);
+            gfx_draw_str(0, 8, fx->param_label, 1);
+            ui_widget_progress_bar(32, 9, 64, 6, fx->get_bar_val(), fx->bar_min, fx->bar_max);
         }
 
         // Draw horizontal divider line at Y = 15
-        for (int16_t x = 0; x < 128; x++)
-        {
-            SH1106_DrawPixel(x, 15, 1);
-        }
+        gfx_draw_line_h(0, 15, 128, 1);
 
         // Render Row 3: FFT Spectrum Analyzer (X = 0 to 111, Y = 16 to 51)
         float32_t local_max = 0.0f;
@@ -272,7 +272,7 @@ void StartEncoderTask(void *argument)
                 local_max = val;
             }
         }
-        
+
         if (local_max > fft_max_env)
         {
             fft_max_env = local_max;
@@ -281,7 +281,7 @@ void StartEncoderTask(void *argument)
         {
             fft_max_env = fft_max_env * 0.98f + local_max * 0.02f;
         }
-        
+
         float32_t current_scale = fft_max_env;
         if (current_scale < 0.2f)
         {
@@ -337,7 +337,7 @@ void StartEncoderTask(void *argument)
             {
                 for (int16_t py = y_top; py <= 51; py++)
                 {
-                    SH1106_DrawPixel(x_start + px, py, 1);
+                    gfx_draw_pixel(x_start + px, py, 1);
                 }
             }
 
@@ -345,7 +345,7 @@ void StartEncoderTask(void *argument)
             int16_t y_peak = 51 - peak_heights[b];
             for (int16_t px = 0; px < 4; px++)
             {
-                SH1106_DrawPixel(x_start + px, y_peak, 1);
+                gfx_draw_pixel(x_start + px, y_peak, 1);
             }
         }
 
@@ -358,13 +358,13 @@ void StartEncoderTask(void *argument)
         // Draw VU box border
         for (int16_t py = 16; py <= 51; py++)
         {
-            SH1106_DrawPixel(116, py, 1);
-            SH1106_DrawPixel(123, py, 1);
+            gfx_draw_pixel(116, py, 1);
+            gfx_draw_pixel(123, py, 1);
         }
         for (int16_t px = 116; px <= 123; px++)
         {
-            SH1106_DrawPixel(px, 16, 1);
-            SH1106_DrawPixel(px, 51, 1);
+            gfx_draw_pixel(px, 16, 1);
+            gfx_draw_pixel(px, 51, 1);
         }
 
         // Draw filled VU column
@@ -373,27 +373,27 @@ void StartEncoderTask(void *argument)
         {
             for (int16_t px = 118; px <= 121; px++)
             {
-                SH1106_DrawPixel(px, py, 1);
+                gfx_draw_pixel(px, py, 1);
             }
         }
 
         // Render clipping peak warning indicator
         if (vu_height >= 34)
         {
-            SH1106_DrawPixel(119, 18, 1);
-            SH1106_DrawPixel(120, 18, 1);
-            SH1106_DrawPixel(119, 19, 1);
-            SH1106_DrawPixel(120, 19, 1);
+            gfx_draw_pixel(119, 18, 1);
+            gfx_draw_pixel(120, 18, 1);
+            gfx_draw_pixel(119, 19, 1);
+            gfx_draw_pixel(120, 19, 1);
         }
 
         // Render Row 5: Bottom frequency labels (Y = 54)
-        SH1106_DrawStr(2, 54, "Bas", 1);
-        SH1106_DrawStr(42, 54, "Sred", 1);
-        SH1106_DrawStr(84, 54, "Sopr", 1);
-        SH1106_DrawStr(116, 54, "VU", 1);
+        gfx_draw_str(2, 54, "Bas", 1);
+        gfx_draw_str(42, 54, "Sred", 1);
+        gfx_draw_str(84, 54, "Sopr", 1);
+        gfx_draw_str(116, 54, "VU", 1);
 
-        // Send memory frame buffer to display panel
-        SH1106_Update();
+        // Send memory frame buffer to display panel controller
+        sh1106_flush(gfx_get_framebuffer());
 
         osDelay(50);
     }
