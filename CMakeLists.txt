@@ -2,7 +2,6 @@
 # Architecture: ARM Cortex-M4 (STM32L476RG)
 # RTOS: FreeRTOS | DSP: CMSIS-DSP
 
-
 cmake_minimum_required(VERSION 3.16)
 
 # Define the toolchain file for cross-compilation (ARM GCC)
@@ -26,6 +25,7 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 
 target_include_directories(${PROJECT_NAME} PRIVATE
     ${CMAKE_SOURCE_DIR}/Inc
+    ${CMAKE_SOURCE_DIR}/Bsp/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/STM32L4xx_HAL_Driver/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32L4xx/Include
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
@@ -40,6 +40,13 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Source Files Configuration
 
 target_sources(${PROJECT_NAME} PRIVATE
+    # --- Board Support Package (MCU & PCB Hardware Abstraction) ---
+    Bsp/Src/bsp.c
+    Bsp/Src/bsp_gpio.c
+    Bsp/Src/bsp_spi.c
+    Bsp/Src/bsp_timers.c
+    Bsp/Src/bsp_sai.c
+
     # --- Core Application & Modular Code ---
     Src/main.c
     Src/audio_task.c          # Audio processing thread (High Priority)

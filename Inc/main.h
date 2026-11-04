@@ -1,16 +1,3 @@
-/* USER CODE BEGIN Header */
-/**
-  ******************************************************************************
-  * @file           : main.h
-  * @brief          : Header for main.c file.
-  *                   This file contains the common defines of the application.
-  ******************************************************************************
-  *
-  ******************************************************************************
-  */
-/* USER CODE END Header */
-
-/* Define to prevent recursive inclusion -------------------------------------*/
 #ifndef __MAIN_H
 #define __MAIN_H
 
@@ -20,49 +7,17 @@ extern "C" {
 
 /* Includes ------------------------------------------------------------------*/
 #include "stm32l4xx_hal.h"
-
-/* Private includes ----------------------------------------------------------*/
-/* USER CODE BEGIN Includes */
-
-/* USER CODE END Includes */
-
-/* Exported types ------------------------------------------------------------*/
-/* USER CODE BEGIN ET */
-
-/* USER CODE END ET */
-
-/* Exported constants --------------------------------------------------------*/
-/* USER CODE BEGIN EC */
-
-/* USER CODE END EC */
-
-/* Exported macro ------------------------------------------------------------*/
-/* USER CODE BEGIN EM */
-
-/* USER CODE END EM */
+#include "cmsis_os.h"
+#include "bsp.h"
+#include "hw_audio.h"
+#include "audio_task.h"
+#include "ui_task.h"
 
 /* Exported functions prototypes ---------------------------------------------*/
+/**
+  * @brief  Application error handler.
+  */
 void Error_Handler(void);
-
-/* USER CODE BEGIN EFP */
-
-/* USER CODE END EFP */
-
-/* Private defines -----------------------------------------------------------*/
-#define OLED_CS_Pin GPIO_PIN_12
-#define OLED_CS_GPIO_Port GPIOB
-#define EncoderSwitch2_Pin GPIO_PIN_13
-#define EncoderSwitch2_GPIO_Port GPIOB
-#define EncoderSwitch1_Pin GPIO_PIN_14
-#define EncoderSwitch1_GPIO_Port GPIOB
-#define OLED_RES_Pin GPIO_PIN_6
-#define OLED_RES_GPIO_Port GPIOC
-#define OLED_DC_Pin GPIO_PIN_8
-#define OLED_DC_GPIO_Port GPIOC
-
-/* USER CODE BEGIN Private defines */
-
-/* USER CODE END Private defines */
 
 #ifdef __cplusplus
 }

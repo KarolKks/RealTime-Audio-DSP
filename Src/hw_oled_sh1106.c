@@ -1,9 +1,7 @@
 #include "hw_oled_sh1106.h"
-#include "main.h"
+#include "bsp_spi.h"
+#include "bsp_gpio.h"
 #include <string.h>
-
-// SPI handle defined in main.c
-extern SPI_HandleTypeDef hspi1;
 
 // Font character mapping string containing only used characters
 static const char font_map[] = " :.-0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZadekmoprsxz";
@@ -68,18 +66,18 @@ static uint8_t oled_buffer[1024];
 
 static void SH1106_WriteCommand(uint8_t cmd)
 {
-    HAL_GPIO_WritePin(OLED_DC_GPIO_Port, OLED_DC_Pin, GPIO_PIN_RESET);
-    HAL_GPIO_WritePin(OLED_CS_GPIO_Port, OLED_CS_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(&hspi1, &cmd, 1, 10);
-    HAL_GPIO_WritePin(OLED_CS_GPIO_Port, OLED_CS_Pin, GPIO_PIN_SET);
+    bsp_gpio_write(BSP_PIN_OLED_DC, BSP_PIN_RESET);
+    bsp_gpio_write(BSP_PIN_OLED_CS, BSP_PIN_RESET);
+    bsp_spi1_transmit(&cmd, 1, 10);
+    bsp_gpio_write(BSP_PIN_OLED_CS, BSP_PIN_SET);
 }
 
 static void SH1106_WriteData(uint8_t *data, uint16_t size)
 {
-    HAL_GPIO_WritePin(OLED_DC_GPIO_Port, OLED_DC_Pin, GPIO_PIN_SET);
-    HAL_GPIO_WritePin(OLED_CS_GPIO_Port, OLED_CS_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(&hspi1, data, size, 100);
-    HAL_GPIO_WritePin(OLED_CS_GPIO_Port, OLED_CS_Pin, GPIO_PIN_SET);
+    bsp_gpio_write(BSP_PIN_OLED_DC, BSP_PIN_SET);
+    bsp_gpio_write(BSP_PIN_OLED_CS, BSP_PIN_RESET);
+    bsp_spi1_transmit(data, size, 100);
+    bsp_gpio_write(BSP_PIN_OLED_CS, BSP_PIN_SET);
 }
 
 // Looks up the index of a character in the shortened font_map
@@ -97,10 +95,10 @@ static int16_t get_char_index(char c)
 
 void SH1106_Init(void)
 {
-    // Hardware Reset
-    HAL_GPIO_WritePin(OLED_RES_GPIO_Port, OLED_RES_Pin, GPIO_PIN_RESET);
+    // Hardware Reset via BSP
+    bsp_gpio_write(BSP_PIN_OLED_RES, BSP_PIN_RESET);
     HAL_Delay(10);
-    HAL_GPIO_WritePin(OLED_RES_GPIO_Port, OLED_RES_Pin, GPIO_PIN_SET);
+    bsp_gpio_write(BSP_PIN_OLED_RES, BSP_PIN_SET);
     HAL_Delay(10);
 
     // Initialize SH1106 controller
