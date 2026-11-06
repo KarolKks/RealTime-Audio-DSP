@@ -2,7 +2,6 @@
 # Architecture: ARM Cortex-M4 (STM32L476RG)
 # RTOS: FreeRTOS | DSP: CMSIS-DSP
 
-
 cmake_minimum_required(VERSION 3.16)
 
 # Define the toolchain file for cross-compilation (ARM GCC)
@@ -25,7 +24,12 @@ target_compile_definitions(${PROJECT_NAME} PRIVATE
 # Include Directories (Header files)
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-    ${CMAKE_SOURCE_DIR}/Inc
+    ${CMAKE_SOURCE_DIR}/Core/Inc
+    ${CMAKE_SOURCE_DIR}/Core/Audio/Inc
+    ${CMAKE_SOURCE_DIR}/App/Inc
+    ${CMAKE_SOURCE_DIR}/Tasks/Inc
+    ${CMAKE_SOURCE_DIR}/Bsp/Inc
+    ${CMAKE_SOURCE_DIR}/Components/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/STM32L4xx_HAL_Driver/Inc
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Device/ST/STM32L4xx/Include
     ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/Include
@@ -40,27 +44,46 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Source Files Configuration
 
 target_sources(${PROJECT_NAME} PRIVATE
-    # --- Core Application & Modular Code ---
-    Src/main.c
-    Src/audio_task.c          # Audio processing thread (High Priority)
-    Src/ui_task.c             # OLED & Encoders thread (Low Priority)
-    Src/dsp_effects.c         # Audio effects algorithms (RingMod, Delay, etc.)
-    Src/dsp_fft.c             # Fast Fourier Transform for spectrum analysis
-    Src/hw_audio.c            # SAI and DMA hardware configuration
-    Src/hw_encoders.c         # Hardware timers setup for rotary encoders
-    Src/hw_oled_sh1106.c      # SH1106 OLED display SPI driver
+    # --- Board Support Package (MCU & PCB Hardware Abstraction) ---
+    Bsp/Src/bsp.c
+    Bsp/Src/bsp_gpio.c
+    Bsp/Src/bsp_spi.c
+    Bsp/Src/bsp_timers.c
+    Bsp/Src/bsp_sai.c
 
-    # --- System & Interrupts ---
-    Src/freertos.c
-    Src/stm32l4xx_it.c
-    Src/stm32l4xx_hal_msp.c
-    Src/stm32l4xx_hal_timebase_tim.c
-    Src/syscalls.c
-    Src/sysmem.c
-    Src/system_stm32l4xx.c
-    
-    # --- Assembly Startup Code ---
-    Src/startup_stm32l476rgtx.s
+    # --- Core Audio Stream Adapter ---
+    Core/Audio/Src/audio_stream.c
+
+    # --- External Components ---
+    Components/Src/sh1106.c
+    Components/Src/rotary_encoder.c
+
+    # --- Application DSP and Graphics ---
+    App/Src/dsp_effects.c
+    App/Src/dsp_fft.c
+    App/Src/audio_model.c
+    App/Src/ui_controller.c
+    App/Src/ui_view.c
+    App/Src/gfx.c
+    App/Src/font5x7.c
+    App/Src/ui_widgets.c
+
+    # --- RTOS Tasks ---
+    Tasks/Src/audio_task.c
+    Tasks/Src/ui_task.c
+    Tasks/Src/task_messages.c
+    Tasks/Src/tasks.c
+
+    # --- Core Startup, System and Interrupts ---
+    Core/Src/main.c
+    Core/Src/freertos.c
+    Core/Src/stm32l4xx_it.c
+    Core/Src/stm32l4xx_hal_msp.c
+    Core/Src/stm32l4xx_hal_timebase_tim.c
+    Core/Src/syscalls.c
+    Core/Src/sysmem.c
+    Core/Src/system_stm32l4xx.c
+    Core/Src/startup_stm32l476rgtx.s
 
     # --- FreeRTOS Kernel ---
     Middlewares/Third_Party/FreeRTOS/Source/croutine.c
