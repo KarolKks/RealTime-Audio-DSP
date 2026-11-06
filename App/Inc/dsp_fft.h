@@ -2,15 +2,14 @@
 #define DSP_FFT_H_
 
 #include <stdint.h>
-#include <stdbool.h>
 #include "arm_math.h"
 
 #define FFT_SIZE 256
 
-// Application visualisation data shared between DSP processing and UI task
-extern volatile float32_t global_fft_mags[16];
-extern volatile int32_t global_vu_level;
-extern volatile int32_t fft_init_status;
+typedef struct
+{
+    float32_t band_magnitudes[16];
+} dsp_spectrum_t;
 
 /**
  * @brief  Initializes bit reversal tables and twiddle factors for local FFT computation.
@@ -21,10 +20,11 @@ void dsp_fft_init(void);
 
 /**
  * @brief  Calculates a 256-point complex FFT on mono input samples and aggregates
- *         the output into 16 logarithmic frequency bins for OLED visualizer.
+ *         the output into 16 logarithmic frequency bands.
  * @param  pInMono: Pointer to 128 new 24-bit input samples.
+ * @param  spectrum: Destination for the calculated frequency-band magnitudes.
  * @retval None
  */
-void dsp_fft_process(const int32_t *pInMono);
+void dsp_fft_process(const int32_t *pInMono, dsp_spectrum_t *spectrum);
 
 #endif /* DSP_FFT_H_ */

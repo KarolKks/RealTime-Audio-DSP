@@ -2,11 +2,6 @@
 #include <string.h>
 #include <math.h>
 
-// Visualisation parameters shared with the UI task
-volatile float32_t global_fft_mags[16] = {0};
-volatile int32_t global_vu_level = 0;
-volatile int32_t fft_init_status = -99;
-
 // Radix-2 FFT internal structures
 static uint16_t bit_rev_256[FFT_SIZE];
 static float32_t twiddle_cos_256[FFT_SIZE / 2];
@@ -37,7 +32,6 @@ void dsp_fft_init(void)
         twiddle_sin_256[i] = sinf(angle);
     }
     
-    fft_init_status = 0; // Signal success for diagnostic logging
     my_fft_initialized = 1;
 }
 
@@ -95,8 +89,13 @@ static void my_fft_compute(const float32_t *input, float32_t *output_mag)
     }
 }
 
-void dsp_fft_process(const int32_t *pInMono)
+void dsp_fft_process(const int32_t *pInMono, dsp_spectrum_t *spectrum)
 {
+    if (pInMono == NULL || spectrum == NULL)
+    {
+        return;
+    }
+
     static float32_t fft_in[256] __attribute__((aligned(8))) = {0};
     static float32_t mag[128] __attribute__((aligned(8)));
 
@@ -146,9 +145,8 @@ void dsp_fft_process(const int32_t *pInMono)
         temp_mags[bar] = sum / count;
     }
 
-    // Update global variables for the OLED visualizer task
     for (int bar = 0; bar < 16; bar++)
     {
-        global_fft_mags[bar] = temp_mags[bar];
+        spectrum->band_magnitudes[bar] = temp_mags[bar];
     }
 }

@@ -61,6 +61,9 @@ target_sources(${PROJECT_NAME} PRIVATE
     # --- Application DSP and Graphics ---
     App/Src/dsp_effects.c
     App/Src/dsp_fft.c
+    App/Src/audio_model.c
+    App/Src/ui_controller.c
+    App/Src/ui_view.c
     App/Src/gfx.c
     App/Src/font5x7.c
     App/Src/ui_widgets.c
@@ -68,6 +71,7 @@ target_sources(${PROJECT_NAME} PRIVATE
     # --- RTOS Tasks ---
     Tasks/Src/audio_task.c
     Tasks/Src/ui_task.c
+    Tasks/Src/task_messages.c
     Tasks/Src/tasks.c
 
     # --- Core Startup, System and Interrupts ---
